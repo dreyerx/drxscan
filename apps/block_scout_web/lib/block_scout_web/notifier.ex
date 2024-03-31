@@ -172,7 +172,14 @@ defmodule BlockScoutWeb.Notifier do
       |> Enum.map(
         &(&1
           |> Repo.preload(
-            DenormalizationHelper.extend_transaction_preload([:from_address, :to_address, :token, :transaction])
+            DenormalizationHelper.extend_transaction_preload([
+              :token,
+              :transaction,
+              from_address: :smart_contract,
+              to_address: :smart_contract,
+              from_address: :names,
+              to_address: :names
+            ])
           ))
       )
 
@@ -193,7 +200,16 @@ defmodule BlockScoutWeb.Notifier do
   end
 
   def handle_event({:chain_event, :transactions, :realtime, transactions}) do
-    base_preloads = [:block, created_contract_address: :names, from_address: :names, to_address: :names]
+    base_preloads = [
+      :block,
+      created_contract_address: :names,
+      from_address: :names,
+      to_address: :names,
+      created_contract_address: :smart_contract,
+      from_address: :smart_contract,
+      to_address: :smart_contract
+    ]
+
     preloads = if API_V2.enabled?(), do: [:token_transfers | base_preloads], else: base_preloads
 
     transactions
@@ -433,7 +449,7 @@ defmodule BlockScoutWeb.Notifier do
   end
 
   defp broadcast_transactions_websocket_v2_inner(transactions, default_channel, event) do
-    if Enum.count(transactions) > 0 do
+    if not Enum.empty?(transactions) do
       Endpoint.broadcast(default_channel, event, %{
         transactions: transactions
       })

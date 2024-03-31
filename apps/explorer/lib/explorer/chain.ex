@@ -1386,12 +1386,26 @@ defmodule Explorer.Chain do
     * `:necessity_by_association` - use to load `t:association/0` as `:required` or `:optional`.  If an association is
       `:required`, and the `t:Explorer.Chain.Transaction.t/0` has no associated record for that association, then the
       `t:Explorer.Chain.Transaction.t/0` will not be included in the page `entries`.
+    * `:paging_options` - a `t:Explorer.PagingOptions.t/0` used to specify the `:page_size` and
+      `:key` (a tuple of the lowest/oldest `{block_number, index}`) and. Results will be the transactions
+      older than the `block_number` and `index` that are passed.
   """
-  @spec hashes_to_transactions([Hash.Full.t()], [necessity_by_association_option | api?]) :: [Transaction.t()] | []
+  @spec hashes_to_transactions([Hash.Full.t()], [paging_options | necessity_by_association_option | api?]) ::
+          [Transaction.t()] | []
   def hashes_to_transactions(hashes, options \\ []) when is_list(hashes) and is_list(options) do
     necessity_by_association = Keyword.get(options, :necessity_by_association, %{})
 
-    Transaction.fetch_transactions()
+    # Don't use @default_paging_options to preserve backward compatibility
+    paging_options = Keyword.get(options, :paging_options, false)
+
+    transactions =
+      if paging_options do
+        Transaction.fetch_transactions(paging_options)
+      else
+        Transaction.fetch_transactions()
+      end
+
+    transactions
     |> where([transaction], transaction.hash in ^hashes)
     |> join_associations(necessity_by_association)
     |> preload([{:token_transfers, [:token, :from_address, :to_address]}])
@@ -3480,7 +3494,7 @@ defmodule Explorer.Chain do
     query =
       from(
         token in Token,
-        where: token.cataloged == false,
+        where: token.cataloged == false or is_nil(token.cataloged),
         select: token.contract_address_hash
       )
 
@@ -3745,11 +3759,24 @@ defmodule Explorer.Chain do
   As part of updating token, an additional record is inserted for
   naming the address for reference if a name is provided for a token.
   """
-  @spec update_token(Token.t(), map()) :: {:ok, Token.t()} | {:error, Ecto.Changeset.t()}
-  def update_token(%Token{contract_address_hash: address_hash} = token, params \\ %{}) do
+  @spec update_token(Token.t(), map(), boolean()) :: {:ok, Token.t()} | {:error, Ecto.Changeset.t()}
+  def update_token(%Token{contract_address_hash: address_hash} = token, params \\ %{}, info_from_admin_panel? \\ false) do
+    params =
+      if Map.has_key?(params, :total_supply) do
+        Map.put(params, :total_supply_updated_at_block, BlockNumber.get_max())
+      else
+        params
+      end
+
     filtered_params = for({key, value} <- params, value !== "" && !is_nil(value), do: {key, value}) |> Enum.into(%{})
 
-    token_changeset = Token.changeset(token, Map.put(filtered_params, :updated_at, DateTime.utc_now()))
+    token_changeset =
+      token
+      |> Token.changeset(Map.put(filtered_params, :updated_at, DateTime.utc_now()))
+      |> (&if(token.is_verified_via_admin_panel && !info_from_admin_panel?,
+            do: &1 |> Changeset.delete_change(:symbol) |> Changeset.delete_change(:name),
+            else: &1
+          )).()
 
     address_name_changeset =
       Address.Name.changeset(%Address.Name{}, Map.put(filtered_params, :address_hash, address_hash))
@@ -4050,7 +4077,7 @@ defmodule Explorer.Chain do
 
     today = Date.to_string(NaiveDateTime.utc_now())
 
-    if Enum.count(result) > 0 && !Enum.any?(result, fn map -> map[:date] == today end) do
+    if not Enum.empty?(result) && !Enum.any?(result, fn map -> map[:date] == today end) do
       List.flatten([result | [%{date: today, value: List.last(result)[:value]}]])
     else
       result
@@ -4159,7 +4186,7 @@ defmodule Explorer.Chain do
     zero_wei = %Wei{value: Decimal.new(0)}
     result = find_token_transfer_type(transaction, input, value)
 
-    if is_nil(result) && Enum.count(transaction.token_transfers) > 0 && value == zero_wei,
+    if is_nil(result) && not Enum.empty?(transaction.token_transfers) && value == zero_wei,
       do: :token_transfer,
       else: result
   rescue
@@ -5016,23 +5043,19 @@ defmodule Explorer.Chain do
 
   @spec flat_1155_batch_token_transfers([TokenTransfer.t()], Decimal.t() | nil) :: [TokenTransfer.t()]
   def flat_1155_batch_token_transfers(token_transfers, token_id \\ nil) when is_list(token_transfers) do
-    Enum.reduce(token_transfers, [], fn tt, acc ->
+    token_transfers
+    |> Enum.reduce([], fn tt, acc ->
       case tt.token_ids do
-        [] ->
-          Enum.reverse([tt | Enum.reverse(acc)])
-
-        [_token_id] ->
-          Enum.reverse([tt | Enum.reverse(acc)])
-
-        token_ids when is_list(token_ids) ->
+        token_ids when is_list(token_ids) and length(token_ids) > 1 ->
           transfers = flat_1155_batch_token_transfer(tt, tt.amounts, token_ids, token_id)
 
-          acc ++ transfers
+          transfers ++ acc
 
         _ ->
-          Enum.reverse([tt | Enum.reverse(acc)])
+          [tt | acc]
       end
     end)
+    |> Enum.reverse()
   end
 
   defp flat_1155_batch_token_transfer(tt, amounts, token_ids, token_id_to_filter) do
@@ -5052,7 +5075,7 @@ defmodule Explorer.Chain do
     token_transfers
     |> Enum.group_by(fn tt -> {List.first(tt.token_ids), tt.from_address_hash, tt.to_address_hash} end)
     |> Enum.map(fn {_k, v} -> Enum.reduce(v, nil, &group_batch_reducer/2) end)
-    |> Enum.sort_by(fn tt -> tt.index_in_batch end, :desc)
+    |> Enum.sort_by(fn tt -> tt.index_in_batch end, :asc)
   end
 
   defp group_batch_reducer(transfer, nil) do
