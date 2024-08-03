@@ -41,8 +41,8 @@ services:
     links:
       - db:database
     environment:
-        ETHEREUM_JSONRPC_HTTP_URL: https://testnet-rpc.dreyerx.com
-        ETHEREUM_JSONRPC_TRACE_URL: https://testnet-rpc.dreyerx.com
+        ETHEREUM_JSONRPC_HTTP_URL: https://rpc.dreyerx.com
+        ETHEREUM_JSONRPC_TRACE_URL: https://rpc.dreyerx.com
         CHAIN_ID: '23452'
 
   visualizer:
