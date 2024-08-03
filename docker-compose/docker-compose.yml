@@ -41,10 +41,9 @@ services:
     links:
       - db:database
     environment:
-        ETHEREUM_JSONRPC_HTTP_URL: http://host.docker.internal:8545/
-        ETHEREUM_JSONRPC_TRACE_URL: http://host.docker.internal:8545/
-        ETHEREUM_JSONRPC_WS_URL: ws://host.docker.internal:8545/
-        CHAIN_ID: '1337'
+        ETHEREUM_JSONRPC_HTTP_URL: https://testnet-rpc.dreyerx.com
+        ETHEREUM_JSONRPC_TRACE_URL: https://testnet-rpc.dreyerx.com
+        CHAIN_ID: '23452'
 
   visualizer:
     extends:
@@ -56,12 +55,12 @@ services:
       file: ./services/sig-provider.yml
       service: sig-provider
 
-  frontend:
-    depends_on:
-      - backend
-    extends:
-      file: ./services/frontend.yml
-      service: frontend
+  # frontend:
+  #   depends_on:
+  #     - backend
+  #   extends:
+  #     file: ./services/frontend.yml
+  #     service: frontend
 
   stats-db-init:
     extends:
@@ -87,7 +86,7 @@ services:
   proxy:
     depends_on:
       - backend
-      - frontend
+      # - frontend
       - stats
     extends:
       file: ./services/nginx.yml

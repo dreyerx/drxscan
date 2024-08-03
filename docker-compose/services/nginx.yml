@@ -8,13 +8,18 @@ services:
       - 'host.docker.internal:host-gateway'
     volumes:
       - "../proxy:/etc/nginx/templates"
+      - "../ssl:/etc/nginx/ssl"
+      - "/root/storage:/data/storage:ro"
     environment:
       BACK_PROXY_PASS: ${BACK_PROXY_PASS:-http://backend:4000}
-      FRONT_PROXY_PASS: ${FRONT_PROXY_PASS:-http://frontend:3000}
+      # FRONT_PROXY_PASS: ${FRONT_PROXY_PASS:-http://frontend:3000}
+      FRONT_PROXY_PASS: http://host.docker.internal:3000
     ports:
-      - target: 80
-        published: 80
+      - target: 8090
+        published: 8090
       - target: 8080
         published: 8080
       - target: 8081
         published: 8081
+      - target: 443
+        published: 443
